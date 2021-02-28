@@ -32,7 +32,7 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/async.h"
 
-int main() 
+void setupLogging()
 {
     spdlog::init_thread_pool(8192, 1);
     spdlog::set_level(spdlog::level::trace);
@@ -54,11 +54,13 @@ int main()
     logger->set_level(spdlog::level::trace);
     spdlog::register_logger(logger);
     spdlog::set_default_logger(logger);
-        
-    // Compile time log levels
-    // define SPDLOG_ACTIVE_LEVEL to desired level
-    SPDLOG_INFO("global output with arg {}", 1); // [source main.cpp] [function main] [line 16] global output with arg 1   
-    SPDLOG_DEBUG("global output with arg {}", 1); // [source main.cpp] [function main] [line 16] global output with arg 1   
+}
+
+int main() 
+{
+    setupLogging();
+    
+    SPDLOG_INFO("Netplay room manager started"); 
     
     
     usleep(1000*1000*1);
