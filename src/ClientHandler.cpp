@@ -19,3 +19,199 @@
  * Authors: fzurita
  */
 
+#include "ClientHandler.hpp"
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+
+#include <algorithm>
+#include "spdlog/spdlog.h"
+
+std::unordered_map<int,int> ClientHandler::mMessageIdToSize;
+
+ClientHandler::ClientHandler(int socketHandle) :
+    mSocketHandle(socketHandle),
+    mCurrentBufferOffset(0),
+    mCurrentMessageSize(-1)
+{
+    if (mMessageIdToSize.empty())
+    {
+        mMessageIdToSize[INIT_SESSION] = 100;
+        mMessageIdToSize[REGISTER_NP_SERVER] = 100;
+        mMessageIdToSize[NP_SERVER_GAME_STARTED] = 100;
+        mMessageIdToSize[NP_CLIENT_REQUEST_REGISTRATION] = 100;
+    }
+}
+
+bool ClientHandler::processStream()
+{
+    bool closeConn = false;
+    
+    // Receive data on this connection until the recv fails with EWOULDBLOCK. If any other
+    // failure occurs, we will close the connection.
+    while (true) {
+        int receivedBytes = recv(mSocketHandle, mReceiveBuffer.data() + mCurrentBufferOffset, mReceiveBuffer.size() - mCurrentBufferOffset, 0);
+        
+        if (receivedBytes < 0)
+        {
+            if (errno != EWOULDBLOCK)
+            {
+                SPDLOG_ERROR("recv() failed on socket {}", mSocketHandle);
+                closeConn = true;
+            }
+            break;
+        } 
+        // Check to see if the connection has been closed by the client
+        if (receivedBytes == 0)
+        {
+            SPDLOG_ERROR("Connection closed for {}", mSocketHandle);
+            closeConn = true;
+            break;
+        }
+        
+        // Data was received
+        mCurrentBufferOffset += receivedBytes;
+        
+        uint32_t messageId = -1;
+        if (mCurrentBufferOffset >= MESSAGE_ID_SIZE_BYTES) {
+            messageId = ntohl(*reinterpret_cast<uint32_t*>(mReceiveBuffer.data()));
+            
+            if (mMessageIdToSize.count(messageId) != 0) {
+                mCurrentMessageSize = mMessageIdToSize[messageId];
+                if (mCurrentMessageSize > mReceiveBuffer.size()) {
+                    SPDLOG_ERROR("Unexpected message size for message id {}", messageId);
+                    closeConn = true;
+                    break;
+                }
+                
+            } else {
+                SPDLOG_ERROR("Received invalid message id {}", messageId);
+                closeConn = true;
+                break;
+            }
+        }
+        
+        // The full message has been received, process it
+        if (mCurrentBufferOffset >= mCurrentMessageSize) {
+            closeConn = !processPendingMessage(messageId);
+            
+            mCurrentBufferOffset -= mCurrentMessageSize;
+        }
+    }
+    
+    return closeConn;
+}
+
+
+bool ClientHandler::processPendingMessage(int messageId)
+{
+    switch(messageId) {
+        case INIT_SESSION:
+            return handleInitSession();
+        case REGISTER_NP_SERVER:
+            return handleRegisterNpServer();
+        case NP_SERVER_GAME_STARTED:
+            return handleNpServerGameStarted();
+        case NP_CLIENT_REQUEST_REGISTRATION:
+            return handleNpClientRequestRegistration();
+        default:
+            // Do nothing
+            return true;
+    }
+}
+
+bool ClientHandler::handleInitSession()
+{
+    bool sendSuccess = true;
+
+    // Parse the message
+    char* receiveBufferOffset = mReceiveBuffer.data();
+    receiveBufferOffset += MESSAGE_ID_SIZE_BYTES; // Skip the message id
+    uint32_t netplayVersion = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
+    
+    // Send the response
+    int sendBufferOffset = 0;
+    uint32_t messageId = htonl(INIT_SESSION_RESPONSE);
+    std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(uint32_t);
+
+    bool validVersion = netplayVersion == NETPLAY_VERSION;
+    validVersion = htonl(validVersion);
+    std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(bool);
+    
+    int sentBytes = send(mSocketHandle, mSendBuffer.data(), sendBufferOffset, 0);
+
+    if (sentBytes < 0)
+    {
+        sendSuccess = false;
+        SPDLOG_ERROR("Unable to send init session response message");
+    }
+    
+    return sendSuccess;
+}
+
+bool ClientHandler::handleRegisterNpServer()
+{
+    bool sendSuccess = true;
+
+    // Parse the message
+    char* receiveBufferOffset = mReceiveBuffer.data();
+    receiveBufferOffset += MESSAGE_ID_SIZE_BYTES; // Skip the message id
+    uint32_t netplayServerPort = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
+    receiveBufferOffset += sizeof(uint32_t);
+    
+    // TODO: Send the response to the provided TCP port
+    
+    return true;
+}
+
+bool ClientHandler::handleNpServerGameStarted()
+{
+    // Parse the message
+    char* receiveBufferOffset = mReceiveBuffer.data();
+    receiveBufferOffset += MESSAGE_ID_SIZE_BYTES; // Skip the message id
+    uint32_t netplayVersion = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
+    
+    // No response, just close the connection
+    
+    return false;
+}
+
+bool ClientHandler::handleNpClientRequestRegistration()
+{
+    bool sendSuccess = true;
+
+    // Parse the message
+    char* receiveBufferOffset = mReceiveBuffer.data();
+    receiveBufferOffset += MESSAGE_ID_SIZE_BYTES; // Skip the message id
+    uint32_t roomId = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
+    
+    // Send the response
+    int sendBufferOffset = 0;
+    uint32_t messageId = htonl(NP_CLIENT_REQUEST_REGISTRATION_RESPONSE);
+    std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(uint32_t);
+    
+    // TODO: Get IP and port
+    char ipAddress[16];
+    std::copy_n(ipAddress, sizeof(ipAddress), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(ipAddress);
+    
+    uint32_t port;
+    std::copy_n(reinterpret_cast<char*>(&port), sizeof(port), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(port);
+    
+    int sentBytes = send(mSocketHandle, mSendBuffer.data(), sendBufferOffset, 0);
+
+    if (sentBytes < 0)
+    {
+        sendSuccess = false;
+        SPDLOG_ERROR("Unable to send registration data request response");
+    }
+    
+    return sendSuccess;
+}
+
+

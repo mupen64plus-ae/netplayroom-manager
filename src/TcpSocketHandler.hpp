@@ -22,6 +22,9 @@
 #include <sys/poll.h>
 
 #include <array>
+#include <unordered_map>
+
+#include "ClientHandler.hpp"
 
 /**
  * Used to handle message from any client that connects
@@ -66,7 +69,8 @@ private:
     // File descriptors for clients
     std::array<pollfd, 10000> mFds;
     
-    std::unordered_map<int, 
+    // Map of socket handle number to client handlers
+    std::unordered_map<int, ClientHandler> mcClients;
     
     // Current number of file descriptors
     int mNumberFileDescriptors;

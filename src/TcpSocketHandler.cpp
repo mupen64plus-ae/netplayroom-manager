@@ -45,10 +45,10 @@ void TcpSocketHandler::startServer()
     int listenSd = -1;
     bool compressArray = false;
 
-    sockaddr_in addr = {};
+    sockaddr_in6 addr = {};
     
     // Create an AF_INET stream socket to receive incoming connections on
-    listenSd = socket(AF_INET, SOCK_STREAM, 0);
+    listenSd = socket(AF_INET6, SOCK_STREAM, 0);
     if (listenSd < 0)
     {
         SPDLOG_ERROR("socket() failed");
@@ -74,9 +74,10 @@ void TcpSocketHandler::startServer()
     }
   
     // Bind the socket
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl (INADDR_ANY);
-    addr.sin_port = htons(mPortNumber);
+    memset(&addr, 0, sizeof(addr));
+    addr.sin6_family = AF_INET6;
+    memcpy(&addr.sin6_addr, &in6addr_any, sizeof(in6addr_any));
+    addr.sin6_port = htons(mPortNumber);
     
     if (bind(listenSd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
     {
@@ -193,6 +194,8 @@ bool TcpSocketHandler::acceptNewConnections(int socketFd)
     
     while (newSocket != -1) {
         
+        mcClients.emplace(newSocket, ClientHandler(newSocket));
+        
         // Add the new incoming connection to the pollfd structure
         SPDLOG_INFO("New connection with id {}!", newSocket);
         mFds[mNumberFileDescriptors].fd = newSocket;
@@ -217,46 +220,15 @@ bool TcpSocketHandler::processData(int& socketFd)
 {
     SPDLOG_DEBUG("Descriptor {} is readable",  socketFd);
     bool closeConn = false;
-    char buffer[100];
     
     // Receive all incoming data on this socket before we loop back and call poll again.
-    
-    while(true)
-    {
-        // Receive data on this connection until the recv fails with EWOULDBLOCK. If any other
-        // failure occurs, we will close the connection.
-        int receiveBytes = recv(socketFd, buffer, sizeof(buffer), 0);
-        
-        if (receiveBytes < 0)
-        {
-            if (errno != EWOULDBLOCK)
-            {
-                SPDLOG_ERROR("recv() failed");
-                closeConn = true;
-            }
-            break;
-        }
-    
-        // Check to see if the connection has been closed by the client
-        if (receiveBytes == 0)
-        {
-            SPDLOG_ERROR("Connection closed for {}", socketFd);
-            closeConn = true;
-            break;
-        }
-    
-        // Data was received
-        int len = receiveBytes;
-        SPDLOG_DEBUG("Received bytes {}", len);
-    
-        // Echo the data back to the client
-        int sentBytes = send(socketFd, buffer, len, 0);
-        if (sentBytes < 0)
-        {
-            SPDLOG_ERROR("send() failed");
-            closeConn = true;
-            break;
-        }
+    if (mcClients.count(socketFd) != 0) {
+        // Close connection on failure
+        ClientHandler& client = mcClients.at(socketFd);
+        closeConn = !client.processStream();
+    } else {
+        SPDLOG_ERROR("Received data on unexpected socket {}", socketFd);
+        closeConn = true;
     }
     
     // If the closeConn flag was turned on, we need to clean up this active connection. This
