@@ -32,8 +32,9 @@
 
 #include "TcpSocketHandler.hpp"
 
-TcpSocketHandler::TcpSocketHandler(int portNumber) :
-    mFds{}
+TcpSocketHandler::TcpSocketHandler(RoomManager& roomManager, int portNumber) :
+    mFds{},
+    mRoomManager(roomManager)
 {
     mPortNumber = portNumber;
     mEndServer = false;
@@ -194,7 +195,7 @@ bool TcpSocketHandler::acceptNewConnections(int socketFd)
     
     while (newSocket != -1) {
         
-        mcClients.emplace(newSocket, ClientHandler(newSocket));
+        mcClients.emplace(newSocket, ClientHandler(mRoomManager, newSocket));
         
         // Add the new incoming connection to the pollfd structure
         SPDLOG_INFO("New connection with id {}!", newSocket);

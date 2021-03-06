@@ -19,12 +19,15 @@
  * Authors: fzurita
  */
 
+#pragma once
+
 #include <sys/poll.h>
 
 #include <array>
 #include <unordered_map>
 
 #include "ClientHandler.hpp"
+#include "RoomManager.hpp"
 
 /**
  * Used to handle message from any client that connects
@@ -35,9 +38,10 @@ public:
     
     /**
      * Constructor
+     * @param roomManager Room manager for handling room data
      * @param portNumber Port number to listen in
      */
-    TcpSocketHandler(int portNumber);
+    TcpSocketHandler(RoomManager& roomManager, int portNumber);
 	
     /**
      * Start listening
@@ -74,4 +78,7 @@ private:
     
     // Current number of file descriptors
     int mNumberFileDescriptors;
+    
+    // Room manager
+    RoomManager& mRoomManager;
 };

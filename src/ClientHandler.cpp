@@ -30,17 +30,19 @@
 
 std::unordered_map<int,int> ClientHandler::mMessageIdToSize;
 
-ClientHandler::ClientHandler(int socketHandle) :
+ClientHandler::ClientHandler(RoomManager& roomManager, int socketHandle) :
     mSocketHandle(socketHandle),
     mCurrentBufferOffset(0),
-    mCurrentMessageSize(-1)
+    mCurrentMessageSize(-1),
+    mRoomManager(roomManager),
+    mRoomNumber(0)
 {
     if (mMessageIdToSize.empty())
     {
-        mMessageIdToSize[INIT_SESSION] = 100;
-        mMessageIdToSize[REGISTER_NP_SERVER] = 100;
-        mMessageIdToSize[NP_SERVER_GAME_STARTED] = 100;
-        mMessageIdToSize[NP_CLIENT_REQUEST_REGISTRATION] = 100;
+        mMessageIdToSize[INIT_SESSION] = 8;
+        mMessageIdToSize[REGISTER_NP_SERVER] = 8;
+        mMessageIdToSize[NP_SERVER_GAME_STARTED] = 4;
+        mMessageIdToSize[NP_CLIENT_REQUEST_REGISTRATION] = 8;
     }
 }
 
@@ -162,6 +164,16 @@ bool ClientHandler::handleRegisterNpServer()
     uint32_t netplayServerPort = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
     receiveBufferOffset += sizeof(uint32_t);
     
+    sockaddr_storage addrStorage;
+    socklen_t len = sizeof(sockaddr_storage);
+    getpeername(mSocketHandle, reinterpret_cast<sockaddr*>(&addrStorage), &len);
+    
+    char ipAddress[INET6_ADDRSTRLEN];
+    sockaddr_in6& address = *reinterpret_cast<sockaddr_in6*>(&addrStorage);
+    inet_ntop(AF_INET6, &address.sin6_addr, ipAddress, sizeof(ipAddress));
+    
+    mRoomNumber = mRoomManager.createRoom(std::string(ipAddress), netplayServerPort);
+    
     // TODO: Send the response to the provided TCP port
     
     return true;
@@ -169,12 +181,8 @@ bool ClientHandler::handleRegisterNpServer()
 
 bool ClientHandler::handleNpServerGameStarted()
 {
-    // Parse the message
-    char* receiveBufferOffset = mReceiveBuffer.data();
-    receiveBufferOffset += MESSAGE_ID_SIZE_BYTES; // Skip the message id
-    uint32_t netplayVersion = ntohl(*reinterpret_cast<uint32_t*>(receiveBufferOffset));
-    
-    // No response, just close the connection
+    // No response, just remove the room and close the connection
+    mRoomManager.removeRoom(mRoomNumber);
     
     return false;
 }
@@ -194,12 +202,16 @@ bool ClientHandler::handleNpClientRequestRegistration()
     std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(uint32_t);
     
-    // TODO: Get IP and port
-    char ipAddress[16];
+    // Get IP and port
+    auto roomData = mRoomManager.getRoom(roomId);
+
+    
+    char ipAddress[INET6_ADDRSTRLEN];
+    roomData.first.copy(ipAddress, INET6_ADDRSTRLEN);
     std::copy_n(ipAddress, sizeof(ipAddress), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(ipAddress);
     
-    uint32_t port;
+    uint32_t port = htonl(roomData.second);
     std::copy_n(reinterpret_cast<char*>(&port), sizeof(port), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(port);
     

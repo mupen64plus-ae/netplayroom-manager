@@ -19,8 +19,12 @@
  * Authors: fzurita
  */
 
+#pragma once
+
 #include <array>
 #include <unordered_map>
+
+#include "RoomManager.hpp"
 
 class ClientHandler
 {
@@ -28,9 +32,10 @@ public:
     
     /**
      * Constructor
+     * @param roomManager Room manager
      * @param socketHandle Socket handle associated with this client
      */
-    ClientHandler(int socketHandle);
+    ClientHandler(RoomManager& roomManager, int socketHandle);
     
     /**
      * Process any data available in the stream
@@ -105,4 +110,10 @@ private:
     
     // The message size for the current message being processed
     int mCurrentMessageSize;
+    
+    // Room manager
+    RoomManager& mRoomManager;
+    
+    // Room number
+    uint32_t mRoomNumber;
 };
