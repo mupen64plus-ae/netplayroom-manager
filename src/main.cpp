@@ -32,6 +32,9 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/async.h"
 
+#include "RoomManager.hpp"
+#include "TcpSocketHandler.hpp"
+
 void setupLogging()
 {
     spdlog::init_thread_pool(8192, 1);
@@ -62,7 +65,10 @@ int main()
     
     SPDLOG_INFO("Netplay room manager started"); 
     
+    RoomManager roomManager;
     
-    usleep(1000*1000*1);
+    TcpSocketHandler socketHandler(roomManager, 37520);
+
+    socketHandler.startServer();
 }
 
