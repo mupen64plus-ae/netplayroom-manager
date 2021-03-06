@@ -25,6 +25,7 @@
 
 #include <array>
 #include <unordered_map>
+#include <thread>
 
 #include "ClientHandler.hpp"
 #include "RoomManager.hpp"
@@ -63,6 +64,11 @@ private:
      * @return True if socket was closed
      */
     bool processData(int& socketFd);
+    
+    /**
+     * Send registration data to all servers waiting for it
+     */
+    void sendRegistrationData();
 
     // Port number used to listen in
     int mPortNumber;
@@ -81,4 +87,10 @@ private:
     
     // Room manager
     RoomManager& mRoomManager;
+    
+    // Separate thread for sending room registration data
+    std::thread mRoomRegistrationDataThread;
+    
+    // Mutex used for accessing clients
+    std::mutex mClientsMutex;
 };

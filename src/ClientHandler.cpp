@@ -24,6 +24,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include "spdlog/spdlog.h"
@@ -32,10 +34,13 @@ std::unordered_map<int,int> ClientHandler::mMessageIdToSize;
 
 ClientHandler::ClientHandler(RoomManager& roomManager, int socketHandle) :
     mSocketHandle(socketHandle),
+    mSocketHandleSendRoomNumber(-1),
     mCurrentBufferOffset(0),
     mCurrentMessageSize(-1),
     mRoomManager(roomManager),
-    mRoomNumber(0)
+    mRoomNumber(0),
+    mRoomNumberSent(false),
+    mRoomNumberSentBytes(0)
 {
     if (mMessageIdToSize.empty())
     {
@@ -43,6 +48,44 @@ ClientHandler::ClientHandler(RoomManager& roomManager, int socketHandle) :
         mMessageIdToSize[REGISTER_NP_SERVER] = 8;
         mMessageIdToSize[NP_SERVER_GAME_STARTED] = 4;
         mMessageIdToSize[NP_CLIENT_REQUEST_REGISTRATION] = 8;
+    }
+}
+
+ClientHandler::ClientHandler( const ClientHandler & _clientHandler) :
+    mSocketHandle(_clientHandler.mSocketHandle),
+    mSocketHandleSendRoomNumber(_clientHandler.mSocketHandleSendRoomNumber),
+    mReceiveBuffer(_clientHandler.mReceiveBuffer),
+    mSendBuffer(_clientHandler.mSendBuffer),
+    mRegistrationResponse(_clientHandler.mRegistrationResponse),
+    mCurrentBufferOffset(_clientHandler.mCurrentBufferOffset),
+    mCurrentMessageSize(_clientHandler.mCurrentMessageSize),
+    mRoomManager(_clientHandler.mRoomManager),
+    mRoomNumber(_clientHandler.mRoomNumber),
+    mRoomNumberSent(_clientHandler.mRoomNumberSent),
+    mRoomNumberSentBytes(_clientHandler.mRoomNumberSentBytes)
+{
+
+}
+
+ClientHandler::ClientHandler( const ClientHandler && _clientHandler) :
+    mSocketHandle(std::move(_clientHandler.mSocketHandle)),
+    mSocketHandleSendRoomNumber(std::move(_clientHandler.mSocketHandleSendRoomNumber)),
+    mReceiveBuffer(std::move(_clientHandler.mReceiveBuffer)),
+    mSendBuffer(std::move(_clientHandler.mSendBuffer)),
+    mRegistrationResponse(std::move(_clientHandler.mRegistrationResponse)),
+    mCurrentBufferOffset(std::move(_clientHandler.mCurrentBufferOffset)),
+    mCurrentMessageSize(std::move(_clientHandler.mCurrentMessageSize)),
+    mRoomManager(_clientHandler.mRoomManager),
+    mRoomNumber(std::move(_clientHandler.mRoomNumber)),
+    mRoomNumberSent(std::move(_clientHandler.mRoomNumberSent)),
+    mRoomNumberSentBytes(std::move(_clientHandler.mRoomNumberSentBytes))
+{
+}
+
+ClientHandler::~ClientHandler()
+{
+    if (mSocketHandleSendRoomNumber != -1) {
+        close(mSocketHandleSendRoomNumber);
     }
 }
 
@@ -140,8 +183,8 @@ bool ClientHandler::handleInitSession()
 
     bool validVersion = netplayVersion == NETPLAY_VERSION;
     validVersion = htonl(validVersion);
-    std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
-    sendBufferOffset += sizeof(bool);
+    std::copy_n(reinterpret_cast<char*>(&validVersion), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(uint32_t);
     
     int sentBytes = send(mSocketHandle, mSendBuffer.data(), sendBufferOffset, 0);
 
@@ -156,6 +199,8 @@ bool ClientHandler::handleInitSession()
 
 bool ClientHandler::handleRegisterNpServer()
 {
+    std::unique_lock<std::mutex> lock(mClientRoomMutex);
+    
     bool sendSuccess = true;
 
     // Parse the message
@@ -172,10 +217,40 @@ bool ClientHandler::handleRegisterNpServer()
     sockaddr_in6& address = *reinterpret_cast<sockaddr_in6*>(&addrStorage);
     inet_ntop(AF_INET6, &address.sin6_addr, ipAddress, sizeof(ipAddress));
     
+    // Create the room
     mRoomNumber = mRoomManager.createRoom(std::string(ipAddress), netplayServerPort);
+        
+    mSocketHandleSendRoomNumber = socket(AF_INET6, SOCK_STREAM, 0);
+      
+    // Set socket to be nonblocking.
+    int on = 1;
+    if (ioctl(mSocketHandleSendRoomNumber, FIONBIO, reinterpret_cast<char*>(&on)) < 0)
+    {
+        SPDLOG_ERROR("ioctl() failed");
+        close(mSocketHandleSendRoomNumber);
+        return false;
+    }
     
-    // TODO: Send the response to the provided TCP port
+    address.sin6_family = AF_INET6;
+    address.sin6_port = htons(netplayServerPort); 
     
+    if (connect(mSocketHandleSendRoomNumber, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+
+       if (errno != EWOULDBLOCK)
+       {
+           SPDLOG_ERROR("recv() failed on socket {}", mSocketHandle);
+           return false;
+       }
+    }
+
+    int sendBufferOffset = 0;
+    uint32_t messageId = htonl(REGISTER_NP_SERVER_RESPONSE);
+    std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mRegistrationResponse.data() + sendBufferOffset);
+    sendBufferOffset += sizeof(uint32_t);
+
+    uint32_t roomNumber = htonl(mRoomNumber);
+    std::copy_n(reinterpret_cast<char*>(&roomNumber), sizeof(uint32_t), mRegistrationResponse.data() + sendBufferOffset);
+
     return true;
 }
 
@@ -224,6 +299,31 @@ bool ClientHandler::handleNpClientRequestRegistration()
     }
     
     return sendSuccess;
+}
+
+void ClientHandler::sendNetplayRoomIfConnected()
+{
+    std::unique_lock<std::mutex> lock(mClientRoomMutex);
+    
+    if (mSocketHandleSendRoomNumber != -1 && !mRoomNumberSent) {
+                
+        // Send the response
+        int sentBytes = send(mSocketHandleSendRoomNumber, mRegistrationResponse.data() + mRoomNumberSentBytes,
+            mRegistrationResponse.size() - mRoomNumberSentBytes, 0);
+    
+        if (sentBytes < 0)
+        {
+            SPDLOG_ERROR("Unable to send registration response");
+        }
+        else
+        {
+            mRoomNumberSentBytes += sentBytes;
+            
+            if (mRoomNumberSentBytes == mRegistrationResponse.size()) {
+                mRoomNumberSent = true;
+            }
+        }
+    }
 }
 
 

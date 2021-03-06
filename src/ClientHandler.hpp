@@ -23,6 +23,7 @@
 
 #include <array>
 #include <unordered_map>
+#include <mutex>
 
 #include "RoomManager.hpp"
 
@@ -38,10 +39,31 @@ public:
     ClientHandler(RoomManager& roomManager, int socketHandle);
     
     /**
+     * Copy constructor
+     */
+    ClientHandler ( const ClientHandler & _clientHandler);
+    
+    /**
+     * Move constructor
+     */
+    ClientHandler ( const ClientHandler && _clientHandler);
+    
+    /**
+     * Destructor
+     */
+    ~ClientHandler();
+    
+    /**
      * Process any data available in the stream
      * @return true if the connection needs to be closed
      */
     bool processStream();
+    
+    /**
+     * If a netplay server has registered with us, this will send them the room number
+     * if a connection is present
+     */
+    void sendNetplayRoomIfConnected();
 	
 private:
     
@@ -99,11 +121,17 @@ private:
     // Socket handle associated with this client
     int mSocketHandle;
     
+    // Socket handle used to send the room number
+    int mSocketHandleSendRoomNumber;
+    
     // Buffer used for receiving data
     std::array<char,100> mReceiveBuffer;
     
     // Buffer used for sending data
     std::array<char,100> mSendBuffer;
+    
+    // Buffer used for sending registration response data
+    std::array<char,8> mRegistrationResponse;
     
     // Current offset into the buffer for receiving data
     int mCurrentBufferOffset;
@@ -116,4 +144,13 @@ private:
     
     // Room number
     uint32_t mRoomNumber;
+    
+    // True if room number has been sent
+    bool mRoomNumberSent;
+    
+    // Current byte offset of registration response message
+    int mRoomNumberSentBytes;
+    
+    // Mutex for protecting client room and connection
+    std::mutex mClientRoomMutex;
 };

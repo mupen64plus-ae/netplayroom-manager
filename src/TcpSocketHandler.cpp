@@ -39,6 +39,8 @@ TcpSocketHandler::TcpSocketHandler(RoomManager& roomManager, int portNumber) :
     mPortNumber = portNumber;
     mEndServer = false;
     mNumberFileDescriptors = 1;
+        
+    mRoomRegistrationDataThread = std::thread(&TcpSocketHandler::sendRegistrationData, this);
 }
 
 void TcpSocketHandler::startServer()
@@ -186,10 +188,14 @@ void TcpSocketHandler::startServer()
 
 bool TcpSocketHandler::acceptNewConnections(int socketFd)
 {
+    std::unique_lock<std::mutex> lock(mClientsMutex);
+
     bool success = true;
     
     // Listening descriptor is readable.
-    SPDLOG_DEBUG("Listening socket is readable");    // Accept all incoming connections that are queued up on the listening socket before we
+    SPDLOG_DEBUG("Listening socket is readable");
+    
+    // Accept all incoming connections that are queued up on the listening socket before we
     // loop back and call poll again.
     int newSocket = accept(socketFd, nullptr, nullptr);
     
@@ -222,6 +228,8 @@ bool TcpSocketHandler::processData(int& socketFd)
     SPDLOG_DEBUG("Descriptor {} is readable",  socketFd);
     bool closeConn = false;
     
+    std::unique_lock<std::mutex> lock(mClientsMutex);
+
     // Receive all incoming data on this socket before we loop back and call poll again.
     if (mcClients.count(socketFd) != 0) {
         // Close connection on failure
@@ -241,4 +249,18 @@ bool TcpSocketHandler::processData(int& socketFd)
     }
     
     return closeConn;
+}
+
+
+void TcpSocketHandler::sendRegistrationData()
+{
+    while (!mEndServer) {
+        {
+            std::unique_lock<std::mutex> lock(mClientsMutex);
+            for (auto& client : mcClients) {
+                client.second.sendNetplayRoomIfConnected();
+            }
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds(100));
+    }
 }
