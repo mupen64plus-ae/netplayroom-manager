@@ -312,23 +312,31 @@ void ClientHandler::sendNetplayRoomIfConnected()
     std::unique_lock<std::mutex> lock(mClientRoomMutex);
     
     if (mSocketHandleSendRoomNumber != -1 && !mRoomNumberSent) {
+        
+        sockaddr_storage addrStorage;
+        socklen_t len = sizeof(sockaddr_storage);
+        int returnCode = getpeername(mSocketHandleSendRoomNumber, reinterpret_cast<sockaddr*>(&addrStorage), &len);
 
-        // Send the response
-        int sentBytes = send(mSocketHandleSendRoomNumber, mRegistrationResponse.data() + mRoomNumberSentBytes,
-            mRegistrationResponse.size() - mRoomNumberSentBytes, 0);
-    
-        if (sentBytes < 0)
-        {
-            SPDLOG_ERROR("Unable to send registration response, errno={}, str={}", errno, strerror(errno));
-        }
-        else
-        {
-            mRoomNumberSentBytes += sentBytes;
-            
-            if (mRoomNumberSentBytes == mRegistrationResponse.size()) {
-                mRoomNumberSent = true;
+        // Send the response if we are connected
+        if (returnCode == 0) {
+            int sentBytes = send(mSocketHandleSendRoomNumber, mRegistrationResponse.data() + mRoomNumberSentBytes,
+                mRegistrationResponse.size() - mRoomNumberSentBytes, 0);
+        
+            if (sentBytes < 0)
+            {
+                SPDLOG_ERROR("Unable to send registration response, errno={}, str={}", errno, strerror(errno));
+                close(mSocketHandleSendRoomNumber);
+                mSocketHandleSendRoomNumber = -1;
             }
-        }
+            else
+            {
+                mRoomNumberSentBytes += sentBytes;
+                
+                if (mRoomNumberSentBytes == mRegistrationResponse.size()) {
+                    mRoomNumberSent = true;
+                }
+            }
+        }    
     }
 }
 
