@@ -223,7 +223,7 @@ bool ClientHandler::handleRegisterNpServer()
     
     // Create the room
     mRoomNumber = mRoomManager.createRoom(std::string(ipAddress), netplayServerPort);
-    SPDLOG_INFO("Created room on socket {}: {}:{}", mSocketHandle, ipAddress, netplayServerPort);
+    SPDLOG_INFO("Created room {} on socket {}: {}:{}", mRoomNumber, mSocketHandle, ipAddress, netplayServerPort);
 
     mSocketHandleSendRoomNumber = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
       
