@@ -63,7 +63,7 @@ int main()
 {
     setupLogging();
     
-    SPDLOG_INFO("Netplay room manager started"); 
+    SPDLOG_INFO("Netplay room manager started");
     
     RoomManager roomManager;
     

@@ -87,6 +87,8 @@ ClientHandler::~ClientHandler()
     if (mSocketHandleSendRoomNumber != -1) {
         close(mSocketHandleSendRoomNumber);
     }
+    
+    mRoomManager.removeRoom(mRoomNumber);
 }
 
 bool ClientHandler::processStream()
@@ -96,8 +98,9 @@ bool ClientHandler::processStream()
     // Receive data on this connection until the recv fails with EWOULDBLOCK. If any other
     // failure occurs, we will close the connection.
     while (true) {
-        int receivedBytes = recv(mSocketHandle, mReceiveBuffer.data() + mCurrentBufferOffset, mReceiveBuffer.size() - mCurrentBufferOffset, 0);
         
+        int receivedBytes = recv(mSocketHandle, mReceiveBuffer.data() + mCurrentBufferOffset, mReceiveBuffer.size() - mCurrentBufferOffset, 0);
+
         if (receivedBytes < 0)
         {
             if (errno != EWOULDBLOCK)
@@ -112,6 +115,7 @@ bool ClientHandler::processStream()
         {
             SPDLOG_ERROR("Connection closed for {}", mSocketHandle);
             closeConn = true;
+            mSocketHandleSendRoomNumber = -1;
             break;
         }
         
@@ -219,8 +223,9 @@ bool ClientHandler::handleRegisterNpServer()
     
     // Create the room
     mRoomNumber = mRoomManager.createRoom(std::string(ipAddress), netplayServerPort);
-        
-    mSocketHandleSendRoomNumber = socket(AF_INET6, SOCK_STREAM, 0);
+    SPDLOG_INFO("Created room on socket {}: {}:{}", mSocketHandle, ipAddress, netplayServerPort);
+
+    mSocketHandleSendRoomNumber = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
       
     // Set socket to be nonblocking.
     int on = 1;
@@ -231,14 +236,16 @@ bool ClientHandler::handleRegisterNpServer()
         return false;
     }
     
-    address.sin6_family = AF_INET6;
-    address.sin6_port = htons(netplayServerPort); 
+    sockaddr_in6 server_addr;
+    server_addr.sin6_family = AF_INET6;
+    inet_pton(AF_INET6, ipAddress, &server_addr.sin6_addr);
+    server_addr.sin6_port = htons(netplayServerPort); 
     
-    if (connect(mSocketHandleSendRoomNumber, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+    if (connect(mSocketHandleSendRoomNumber, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
 
-       if (errno != EWOULDBLOCK)
+       if (errno != EWOULDBLOCK && errno != EINPROGRESS)
        {
-           SPDLOG_ERROR("recv() failed on socket {}", mSocketHandle);
+           SPDLOG_ERROR("connect() failed on socket {} address: {}:{}, error={}", mSocketHandle, ipAddress, netplayServerPort, strerror(errno));
            return false;
        }
     }
@@ -280,7 +287,6 @@ bool ClientHandler::handleNpClientRequestRegistration()
     // Get IP and port
     auto roomData = mRoomManager.getRoom(roomId);
 
-    
     char ipAddress[INET6_ADDRSTRLEN];
     roomData.first.copy(ipAddress, INET6_ADDRSTRLEN);
     std::copy_n(ipAddress, sizeof(ipAddress), mSendBuffer.data() + sendBufferOffset);
@@ -306,14 +312,14 @@ void ClientHandler::sendNetplayRoomIfConnected()
     std::unique_lock<std::mutex> lock(mClientRoomMutex);
     
     if (mSocketHandleSendRoomNumber != -1 && !mRoomNumberSent) {
-                
+
         // Send the response
         int sentBytes = send(mSocketHandleSendRoomNumber, mRegistrationResponse.data() + mRoomNumberSentBytes,
             mRegistrationResponse.size() - mRoomNumberSentBytes, 0);
     
         if (sentBytes < 0)
         {
-            SPDLOG_ERROR("Unable to send registration response");
+            SPDLOG_ERROR("Unable to send registration response, errno={}, str={}", errno, strerror(errno));
         }
         else
         {

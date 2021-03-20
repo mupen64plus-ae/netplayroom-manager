@@ -105,8 +105,8 @@ void TcpSocketHandler::startServer()
     while (!mEndServer)
     {
         // Poll with a timeout of 1 second
-        int pollReturn = poll(mFds.data(), mNumberFileDescriptors, 1);
-    
+        int pollReturn = poll(mFds.data(), mNumberFileDescriptors, 1000);
+
         // Check to see if the poll call failed.
         if (pollReturn < 0)
         {
@@ -143,6 +143,7 @@ void TcpSocketHandler::startServer()
             {
                 if (!acceptNewConnections(listenSd))
                 {
+                    SPDLOG_ERROR("Error accepting connections");
                     mEndServer = true;
                     break;
                 }
@@ -188,8 +189,6 @@ void TcpSocketHandler::startServer()
 
 bool TcpSocketHandler::acceptNewConnections(int socketFd)
 {
-    std::unique_lock<std::mutex> lock(mClientsMutex);
-
     bool success = true;
     
     // Listening descriptor is readable.
@@ -200,8 +199,17 @@ bool TcpSocketHandler::acceptNewConnections(int socketFd)
     int newSocket = accept(socketFd, nullptr, nullptr);
     
     while (newSocket != -1) {
+        int on = 1;
+        if (ioctl(newSocket, FIONBIO, reinterpret_cast<char*>(&on)) < 0)
+        {
+            SPDLOG_ERROR("ioctl() failed");
+            close(newSocket);
+        }
         
-        mcClients.emplace(newSocket, ClientHandler(mRoomManager, newSocket));
+        {
+            std::unique_lock<std::mutex> lock(mClientsMutex);
+            mcClients.emplace(newSocket, ClientHandler(mRoomManager, newSocket));
+        }
         
         // Add the new incoming connection to the pollfd structure
         SPDLOG_INFO("New connection with id {}!", newSocket);
@@ -234,7 +242,7 @@ bool TcpSocketHandler::processData(int& socketFd)
     if (mcClients.count(socketFd) != 0) {
         // Close connection on failure
         ClientHandler& client = mcClients.at(socketFd);
-        closeConn = !client.processStream();
+        closeConn = client.processStream();
     } else {
         SPDLOG_ERROR("Received data on unexpected socket {}", socketFd);
         closeConn = true;
@@ -244,10 +252,14 @@ bool TcpSocketHandler::processData(int& socketFd)
     // clean up process includes removing the descriptor.
     if (closeConn)
     {
+        SPDLOG_INFO("Connection closed on socket {}", socketFd);
         close(socketFd);
+        
+        mcClients.erase(socketFd);
+        
         socketFd = -1;
     }
-    
+
     return closeConn;
 }
 
