@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/rotating_file_sink.h"
@@ -57,7 +58,7 @@ void setupLogging()
     spdlog::set_default_logger(logger);
 }
 
-int main() 
+int main(int argc, char *argv[]) 
 {
     setupLogging();
     
@@ -65,8 +66,39 @@ int main()
     
     RoomManager roomManager;
     
-    TcpSocketHandler socketHandler(roomManager, 37520);
-
-    socketHandler.startServer();
+    int port = 37520;
+    
+    // Try to parse port number
+    if (argc > 1) {
+        port = -1;
+        
+        try {
+            std::string argument(argv[1]);
+            port = std::stoi(argument);
+        } catch(std::invalid_argument e) {
+            std::cout << "Invalid argument exception" << std::endl;
+            SPDLOG_ERROR("Invalid argument exception");
+        } catch(std::out_of_range e) {
+            std::cout << "Out of range exception" << std::endl;
+            SPDLOG_ERROR("Out of range exception");
+        }
+        
+        if (port > std::numeric_limits<uint16_t>::max()) {
+            std::cout << "Invalid port, max=" << std::numeric_limits<uint16_t>::max() << std::endl;
+            SPDLOG_ERROR("Invalid port, max={}", std::numeric_limits<uint16_t>::max());
+            port = -1;
+        }
+    }
+    
+    if (port != -1) {
+        std::cout << "Server started on port " << port << std::endl;
+        TcpSocketHandler socketHandler(roomManager, port);
+        socketHandler.startServer();
+    } else {
+        std::cout << "Invalid port number: " << argv[1] << std::endl;
+        SPDLOG_ERROR("Invalid port number: {}", argv[1]);
+    }
+    
+    return 0;
 }
 
