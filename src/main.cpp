@@ -24,8 +24,6 @@
 #include <iostream>
 #include <memory>
 
-#define SPDLOG_ACTIVE_LEVEL 0
-
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/rotating_file_sink.h"
 #include "spdlog/sinks/stdout_sinks.h"
