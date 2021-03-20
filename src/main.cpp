@@ -56,6 +56,7 @@ void setupLogging()
     logger->set_level(spdlog::level::trace);
     spdlog::register_logger(logger);
     spdlog::set_default_logger(logger);
+    spdlog::flush_every (std::chrono::seconds(1));
 }
 
 int main(int argc, char *argv[]) 
