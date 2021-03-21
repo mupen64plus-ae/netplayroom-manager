@@ -153,4 +153,7 @@ private:
     
     // Mutex for protecting client room and connection
     std::mutex mClientRoomMutex;
+    
+    // True if the session has been initialized
+    bool mHasBeenInit;
 };

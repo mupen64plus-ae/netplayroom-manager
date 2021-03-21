@@ -40,7 +40,8 @@ ClientHandler::ClientHandler(RoomManager& roomManager, int socketHandle) :
     mRoomManager(roomManager),
     mRoomNumber(0),
     mRoomNumberSent(false),
-    mRoomNumberSentBytes(0)
+    mRoomNumberSentBytes(0),
+    mHasBeenInit(false)
 {
     if (mMessageIdToSize.empty())
     {
@@ -185,8 +186,8 @@ bool ClientHandler::handleInitSession()
     std::copy_n(reinterpret_cast<char*>(&messageId), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(uint32_t);
 
-    bool validVersion = netplayVersion == NETPLAY_VERSION;
-    validVersion = htonl(validVersion);
+    mHasBeenInit = netplayVersion == NETPLAY_VERSION;
+    bool validVersion = htonl(mHasBeenInit);
     std::copy_n(reinterpret_cast<char*>(&validVersion), sizeof(uint32_t), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(uint32_t);
     
@@ -198,7 +199,7 @@ bool ClientHandler::handleInitSession()
         SPDLOG_ERROR("Unable to send init session response message");
     }
     
-    if (!validVersion) {
+    if (!mHasBeenInit) {
         sendSuccess = false;
     }
     
@@ -207,6 +208,10 @@ bool ClientHandler::handleInitSession()
 
 bool ClientHandler::handleRegisterNpServer()
 {
+    if (!mHasBeenInit) {
+        return false;
+    }
+    
     std::unique_lock<std::mutex> lock(mClientRoomMutex);
     
     bool sendSuccess = true;
@@ -275,6 +280,10 @@ bool ClientHandler::handleNpServerGameStarted()
 
 bool ClientHandler::handleNpClientRequestRegistration()
 {
+    if (!mHasBeenInit) {
+        return false;
+    }
+
     bool sendSuccess = true;
 
     // Parse the message
