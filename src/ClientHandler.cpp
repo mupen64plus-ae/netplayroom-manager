@@ -198,6 +198,10 @@ bool ClientHandler::handleInitSession()
         SPDLOG_ERROR("Unable to send init session response message");
     }
     
+    if (!validVersion) {
+        sendSuccess = false;
+    }
+    
     return sendSuccess;
 }
 
@@ -288,13 +292,17 @@ bool ClientHandler::handleNpClientRequestRegistration()
     auto roomData = mRoomManager.getRoom(roomId);
 
     char ipAddress[INET6_ADDRSTRLEN];
+    std::fill(ipAddress, ipAddress + INET6_ADDRSTRLEN, 0);
     roomData.first.copy(ipAddress, INET6_ADDRSTRLEN);
     std::copy_n(ipAddress, sizeof(ipAddress), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(ipAddress);
     
-    uint32_t port = htonl(roomData.second);
+    int32_t port = htonl(roomData.second);
     std::copy_n(reinterpret_cast<char*>(&port), sizeof(port), mSendBuffer.data() + sendBufferOffset);
     sendBufferOffset += sizeof(port);
+
+    SPDLOG_ERROR("Request for room data on socket {}, room={}, ip={}, port={}", mSocketHandle, roomId, ipAddress, roomData.second);
+
     
     int sentBytes = send(mSocketHandle, mSendBuffer.data(), sendBufferOffset, 0);
 
