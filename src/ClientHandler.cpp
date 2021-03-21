@@ -351,6 +351,7 @@ void ClientHandler::sendNetplayRoomIfConnected()
                 
                 if (mRoomNumberSentBytes == mRegistrationResponse.size()) {
                     mRoomNumberSent = true;
+                    SPDLOG_ERROR("Sent room number {} to client {} through socket {}", mRoomNumber, mSocketHandle, mSocketHandleSendRoomNumber);
                 }
             }
         }    
