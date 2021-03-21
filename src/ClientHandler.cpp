@@ -87,6 +87,11 @@ ClientHandler::~ClientHandler()
 {
     if (mSocketHandleSendRoomNumber != -1) {
         close(mSocketHandleSendRoomNumber);
+        
+        if (!mRoomNumberSent) {
+            SPDLOG_WARN("Connection closed without sending room number {} on socket {} and client socket {}",
+                mRoomNumber, mSocketHandle, mSocketHandleSendRoomNumber);
+        }
     }
     
     mRoomManager.removeRoom(mRoomNumber);
@@ -116,7 +121,6 @@ bool ClientHandler::processStream()
         {
             SPDLOG_ERROR("Connection closed for {}", mSocketHandle);
             closeConn = true;
-            mSocketHandleSendRoomNumber = -1;
             break;
         }
         
