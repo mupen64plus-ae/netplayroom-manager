@@ -43,6 +43,11 @@ TcpSocketHandler::TcpSocketHandler(RoomManager& roomManager, int portNumber) :
     mRoomRegistrationDataThread = std::thread(&TcpSocketHandler::sendRegistrationData, this);
 }
 
+TcpSocketHandler::~TcpSocketHandler()
+{
+    mRoomRegistrationDataThread.join();
+}
+
 void TcpSocketHandler::startServer()
 {
     int listenSd = -1;

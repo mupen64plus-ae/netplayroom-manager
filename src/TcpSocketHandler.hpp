@@ -43,6 +43,11 @@ public:
      * @param portNumber Port number to listen in
      */
     TcpSocketHandler(RoomManager& roomManager, int portNumber);
+
+    /**
+     * Destructor
+     */
+    ~TcpSocketHandler();
 	
     /**
      * Start listening
